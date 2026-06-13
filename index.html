@@ -909,7 +909,30 @@
 				>
 
 				<hr />
-				Link the Ker Nethalas 1.6 rulebook PDF to this app:<br />
+				<div class="left">
+					Rulebook edition:<br />
+					<label class="pointer"
+						><input
+							type="radio"
+							name="ver"
+							value="1.6"
+							onchange="fnSetVersion('1.6')"
+						/>
+						Ker Nethalas 1.6</label
+					><br />
+					<label class="pointer"
+						><input
+							type="radio"
+							name="ver"
+							value="gb"
+							onchange="fnSetVersion('gb')"
+						/>
+						Gravebound Edition</label
+					><br />
+				</div>
+				<br />
+				Link your <span id="spVersionName">Ker Nethalas 1.6</span>
+				rulebook PDF to this app:<br />
 				<button id="pick">Link PDF</button><br />
 				<span class="page"
 					>The PDF is not shared, transmitted or changed.<br />It
@@ -949,6 +972,17 @@
 						/>
 						Vaelorian Codex #2 Enemies</label
 					>&emsp;<br />
+					<label class="pointer"
+						><input
+							type="checkbox"
+							id="chkGB"
+							onchange="fnSettingsEnemies()"
+						/>
+						Gravebound Bestiary
+						<span class="page"
+							>(Gravebound edition only)</span
+						></label
+					><br />
 				</div>
 				<hr />
 				<div class="left">
@@ -1177,6 +1211,7 @@
 			const chkEnemiesCore = document.getElementById("chkCore");
 			const chkEnemiesVC1 = document.getElementById("chkVC1");
 			const chkEnemiesVC2 = document.getElementById("chkVC2");
+			const chkEnemiesGB = document.getElementById("chkGB");
 			const divRoom = document.getElementById("divRoom");
 			const divCombatInfo = document.getElementById("divCombatInfo");
 			const dbRoomDesc = [
@@ -1599,6 +1634,131 @@
 
 			let dbEnemyStack = [];
 
+			// ------------------------------------------------------------
+			// Rulebook edition support
+			// ------------------------------------------------------------
+			// Gravebound-only bestiary entries: [name, page]. These creatures
+			// are not in the 1.6 core roster and have no encounter art.
+			const dbEnemiesGB = [
+				["Carnage Devourer", 180],
+				["Dreadlord", 182],
+				["Glacial Burrower", 184],
+				["Gorehoof", 186],
+				["Infernal Archon", 188],
+				["Infernal Tormentor", 190],
+				["Pyroclasmic Possessor", 192],
+				["Veilshifter", 194],
+				["Venomcloud Siren", 196],
+				["Zephyrous Shadow", 198],
+			];
+
+			// Each edition maps the canonical 1.6 page numbers used throughout
+			// this app to the page that holds the same rules in that edition.
+			// pageMap: null means identity (the page numbers are already 1.6).
+			// enemyPageOffset: core enemy stat page = enemyId + offset.
+			const RULEBOOK_VERSIONS = {
+				"1.6": {
+					label: "Ker Nethalas 1.6",
+					storeKey: "userPDF",
+					enemyPageOffset: 122,
+					pageMap: null,
+				},
+				gb: {
+					label: "Gravebound Edition",
+					storeKey: "userPDFgb",
+					enemyPageOffset: 135,
+					// 1.6 page -> Gravebound page (inferred from section content)
+					pageMap: {
+						13: 15, 14: 16, 16: 18, 17: 19, 19: 21, 60: 62,
+						63: 69, 66: 76, 67: 78, 68: 79, 69: 80, 70: 81,
+						71: 82, 72: 84, 73: 84, 74: 86, 76: 88, 78: 90,
+						79: 91, 84: 96, 86: 98, 87: 100, 89: 102, 95: 108,
+						103: 116, 104: 99, 105: 119, 106: 120, 109: 123,
+						111: 126, 112: 64, 119: 133, 165: 179, 188: 206,
+						189: 207, 190: 208, 192: 210, 193: 210, 194: 211,
+						195: 212, 196: 213, 197: 214, 198: 213, 199: 216,
+						203: 221, 204: 222, 205: 223, 206: 224, 207: 226,
+						208: 227, 209: 228, 210: 229, 211: 230, 212: 231,
+						213: 232, 215: 234, 221: 127,
+					},
+				},
+			};
+
+			let activeVersion =
+				localStorage.getItem("gbfKNHAversion") || "1.6";
+			if (!RULEBOOK_VERSIONS[activeVersion]) activeVersion = "1.6";
+
+			function fnMapPage(p) {
+				const m = RULEBOOK_VERSIONS[activeVersion].pageMap;
+				return m && m[p] != null ? m[p] : p;
+			}
+
+			// Rewrites the visible "(p. N)" text of every PDF link to the
+			// active edition's page. The data-page attribute stays canonical
+			// (1.6) and is translated by fnMapPage in the click handler, so
+			// this is idempotent and safe to re-run on version change.
+			function fnLocalizeLinks(root) {
+				(root || document)
+					.querySelectorAll("a.openPDF")
+					.forEach((a) => {
+						if (a.dataset.abs) return; // already an edition page
+						const base = Number(a.dataset.page);
+						if (a.dataset.disp === undefined)
+							a.dataset.disp = a.innerHTML;
+						const mapped = fnMapPage(base);
+						a.innerHTML =
+							mapped === base
+								? a.dataset.disp
+								: a.dataset.disp.replace(
+										new RegExp("\\b" + base + "\\b"),
+										mapped
+								  );
+					});
+			}
+
+			// Builds the name + page link + art for one encounter enemy.
+			// Enemy links carry the edition's actual page already, so they are
+			// flagged data-abs to skip the canonical 1.6 -> edition translation.
+			function fnEnemyMarkup(id) {
+				const off = RULEBOOK_VERSIONS[activeVersion].enemyPageOffset;
+				let name = "";
+				let img = "";
+				if (id >= 101) {
+					const e = dbEnemiesGB[id - 101];
+					if (e) {
+						name = `${e[0]} <span class="page"><a href="#" class="openPDF" data-abs="1" data-page="${e[1]}">(p. ${e[1]})</a></span><br>`;
+					}
+				} else {
+					if (id <= dbEnemiesCore.length) {
+						const pg = id + off;
+						name = `${dbEnemiesCore[id - 1][0]} <span class="page"><a href="#" class="openPDF" data-abs="1" data-page="${pg}">(p. ${pg})</a></span><br>`;
+					}
+					img = `<img class="imgEncounter" src="img/encounters/encounter-${id}.jpg" />`;
+				}
+				return `${name}${img}`;
+			}
+
+			function fnSyncVersionUI() {
+				const r = document.querySelector(
+					`input[name="ver"][value="${activeVersion}"]`
+				);
+				if (r) r.checked = true;
+				const sp = document.getElementById("spVersionName");
+				if (sp)
+					sp.textContent = RULEBOOK_VERSIONS[activeVersion].label;
+				chkEnemiesGB.disabled = activeVersion !== "gb";
+			}
+
+			function fnSetVersion(v) {
+				if (!RULEBOOK_VERSIONS[v]) return;
+				activeVersion = v;
+				if (v !== "gb") chkEnemiesGB.checked = false;
+				fnSyncVersionUI();
+				fnSettingsEnemies();
+				fnLocalizeLinks(document);
+				if (window.knLoadPDF) window.knLoadPDF();
+			}
+
 			const txtCharLeft = document.getElementById("txtCharLeft");
 			const txtCharRight = document.getElementById("txtCharRight");
 			const txtInvLeft = document.getElementById("txtInvLeft");
@@ -1671,16 +1831,9 @@
 					if (roll >= 10) {
 						html += `<h1>Combat Encounter</h1><br>`;
 						roll = fnRoll(dbEnemyStack.length) - 1;
-						let nme = "";
-						if (dbEnemyStack[roll] <= dbEnemiesCore.length) {
-							nme = `${
-								dbEnemiesCore[dbEnemyStack[roll] - 1][0]
-							} <span class="page"><a href="#" class="openPDF" data-page="${
-								dbEnemyStack[roll - 1] + 122
-							}"
-					>(p. ${dbEnemyStack[roll - 1] + 122})</a></span><br>`;
-						}
-						html += `${nme}<img class="imgEncounter" src="img/encounters/encounter-${dbEnemyStack[roll]}.jpg" /><br>${divCombatInfo.innerHTML}<br><b class="big dark">&darr;</b><br>`;
+						html += `${fnEnemyMarkup(
+							dbEnemyStack[roll]
+						)}<br>${divCombatInfo.innerHTML}<br><b class="big dark">&darr;</b><br>`;
 					} else {
 						roll = fnRoll(100);
 						html += `<h1>Event:</h1><br>${
@@ -1696,16 +1849,9 @@
 					html += `<br>Critical: ${dbScavenge[roll - 1 + 5]}</span>`;
 					html += `<span id="spScavengeFailResult" style="display: none">Fumble!<br><b class="big dark">&darr;</b><br><b>Combat Encounter</b><br>`;
 					roll = fnRoll(dbEnemyStack.length) - 1;
-					let nme = "";
-					if (dbEnemyStack[roll] <= dbEnemiesCore.length) {
-						nme = `${
-							dbEnemiesCore[dbEnemyStack[roll] - 1][0]
-						} <span class="page"><a href="#" class="openPDF" data-page="${
-							dbEnemyStack[roll - 1] + 122
-						}"
-					>(p. ${dbEnemyStack[roll - 1] + 122})</a></span><br>`;
-					}
-					html += `${nme}<img class="imgEncounter" src="img/encounters/encounter-${dbEnemyStack[roll]}.jpg" /><br>${divCombatInfo.innerHTML}</span>`;
+					html += `${fnEnemyMarkup(
+						dbEnemyStack[roll]
+					)}<br>${divCombatInfo.innerHTML}</span>`;
 				} else {
 					html += `<h1 class="big">Corridor ${roll}</h1><br>`;
 					html += `<img class="imgTile" src="img/tiles/tile-${roll}.jpg" /><br>`;
@@ -1724,16 +1870,9 @@
 					if (roll >= 15) {
 						html += `<h1>Combat Encounter</h1><br>`;
 						roll = fnRoll(dbEnemyStack.length) - 1;
-						let nme = "";
-						if (dbEnemyStack[roll] <= dbEnemiesCore.length) {
-							nme = `${
-								dbEnemiesCore[dbEnemyStack[roll] - 1][0]
-							} <span class="page"><a href="#" class="openPDF" data-page="${
-								dbEnemyStack[roll - 1] + 122
-							}"
-					>(p. ${dbEnemyStack[roll - 1] + 122})</a></span><br>`;
-						}
-						html += `${nme}<img class="imgEncounter" src="img/encounters/encounter-${dbEnemyStack[roll]}.jpg" /><br>${divCombatInfo.innerHTML}<br>`;
+						html += `${fnEnemyMarkup(
+							dbEnemyStack[roll]
+						)}<br>${divCombatInfo.innerHTML}<br>`;
 					} else {
 						html += `<h1>There is nothing here.</h1>`;
 					}
@@ -1746,6 +1885,7 @@
 					`<br><b class="big dark">&darr;</b><br><button id="btnRollRoom" class="" onclick="fnRollRoom()" title="Shortcut: N">
 					New Room/Corridor
 				</button><br><br><br><br><br><br><br><br><br><br><br>`;
+				fnLocalizeLinks(divRoom);
 				window.scrollTo({ top: 0, behavior: "smooth" });
 				fnSave();
 			}
@@ -2006,6 +2146,11 @@
 						dbEnemyStack.push(i);
 					}
 				}
+				if (activeVersion === "gb" && chkEnemiesGB.checked) {
+					for (let i = 0; i < dbEnemiesGB.length; i++) {
+						dbEnemyStack.push(101 + i);
+					}
+				}
 				if (dbEnemyStack.length === 0) {
 					chkEnemiesCore.checked = true;
 					fnSettingsEnemies();
@@ -2062,6 +2207,11 @@
 					"gbfKNHAenemiesVC2",
 					JSON.stringify(Boolean(chkEnemiesVC2.checked))
 				);
+				localStorage.setItem(
+					"gbfKNHAenemiesGB",
+					JSON.stringify(Boolean(chkEnemiesGB.checked))
+				);
+				localStorage.setItem("gbfKNHAversion", activeVersion);
 				localStorage.setItem("gbfKNHAcontent", divRoom.innerHTML);
 				fnUpdateNoteObject();
 				localStorage.setItem("gbfKNHAnotes", JSON.stringify(userNotes));
@@ -2079,6 +2229,9 @@
 						);
 						chkEnemiesVC2.checked = JSON.parse(
 							localStorage.getItem("gbfKNHAenemiesVC2")
+						);
+						chkEnemiesGB.checked = JSON.parse(
+							localStorage.getItem("gbfKNHAenemiesGB") || "false"
 						);
 						divRoom.innerHTML =
 							localStorage.getItem("gbfKNHAcontent");
@@ -2124,6 +2277,8 @@
 				chkEnemiesCore.checked = true;
 				chkEnemiesVC1.checked = false;
 				chkEnemiesVC2.checked = false;
+				chkEnemiesGB.checked = false;
+				fnSyncVersionUI();
 				fnSettingsEnemies();
 				fnRollRoom();
 			}
@@ -2331,6 +2486,8 @@
 				} else {
 					fnReset();
 				}
+				fnSyncVersionUI();
+				fnLocalizeLinks(document);
 			})();
 
 			// ------------------------------------------------------------
@@ -2343,8 +2500,10 @@
 			pdfjsLib.GlobalWorkerOptions.workerSrc = "./lib/pdf.worker.mjs";
 
 			const DB = "pdfStore",
-				STORE = "files",
-				KEY = "userPDF";
+				STORE = "files";
+			// The IndexedDB key depends on the selected edition, so each
+			// rulebook PDF is stored independently.
+			const KEY = () => RULEBOOK_VERSIONS[activeVersion].storeKey;
 			window.pdfDoc = null;
 			let currentPage = 1;
 
@@ -2367,7 +2526,7 @@
 					const db = await getDB();
 					db.transaction(STORE, "readwrite")
 						.objectStore(STORE)
-						.put(i.files[0], KEY);
+						.put(i.files[0], KEY());
 					loadPDF(); // load immediately
 					alert("PDF linked!");
 				};
@@ -2377,9 +2536,21 @@
 			/* Load PDF from IndexedDB */
 			async function loadPDF() {
 				const db = await getDB();
-				const req = db.transaction(STORE).objectStore(STORE).get(KEY);
+				const req = db.transaction(STORE).objectStore(STORE).get(KEY());
 				req.onsuccess = async () => {
-					if (!req.result) return;
+					if (!req.result) {
+						// No PDF linked for this edition: clear any stale render.
+						window.pdfDoc = null;
+						const c = document.getElementById("pdf");
+						if (c)
+							c.getContext("2d").clearRect(
+								0,
+								0,
+								c.width,
+								c.height
+							);
+						return;
+					}
 					const arrayBuffer = await req.result.arrayBuffer();
 					window.pdfDoc = await pdfjsLib.getDocument({
 						data: arrayBuffer,
@@ -2387,6 +2558,7 @@
 					renderPage(1);
 				};
 			}
+			window.knLoadPDF = loadPDF;
 
 			/* Render a page */
 			async function renderPage(num) {
@@ -2409,8 +2581,10 @@
 				const link = e.target.closest("a.openPDF");
 				if (!link) return;
 				e.preventDefault();
-				currentPage = Number(link.dataset.page);
-				renderPage(Number(link.dataset.page));
+				const raw = Number(link.dataset.page);
+				const target = link.dataset.abs ? raw : fnMapPage(raw);
+				currentPage = target;
+				renderPage(target);
 				if (window.pdfDoc) {
 					diceShown = 0;
 					fnToggleDice();
@@ -2420,7 +2594,9 @@
 					fnTogglePDFIndex();
 				} else {
 					alert(
-						"Link your Ker Nethalas 1.6 PDF in the settings menu first."
+						"Link your " +
+							RULEBOOK_VERSIONS[activeVersion].label +
+							" PDF in the settings menu first."
 					);
 				}
 			});
@@ -2442,7 +2618,7 @@
 				});
 
 				const tx = db.transaction("files", "readwrite");
-				tx.objectStore("files").delete("userPDF");
+				tx.objectStore("files").delete(KEY());
 
 				tx.oncomplete = () => {
 					console.log("PDF cleared from IndexedDB");
